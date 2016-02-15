@@ -12,36 +12,26 @@
 	}
 
 	function createMap() {
-		/*
-		MAP_TILES = [
-			'##########',
-			'#        #',
-			'# #### # #',
-			'#  S#### #',
-			'#####  # #',
-			'#        #',
-			'#  #######',
-			'# ###    #',
-			'#     #G #',
-			'##########',
-		].map((a) => a.split('')).reduce((result, yTiles, y) => {
-			yTiles.forEach((tile, x) => {
-				result[x + '_' + y] = tile;
-			});
-			return result;
-		}, {});
-		/*/
 		MAP_TILES = {};
 		_.times(NUM_OF_TILES, (y) => {
 			_.times(NUM_OF_TILES, (x) => {
-				var tile = (Math.random() < 0.5) ? '#' : ' ';
-				MAP_TILES[x + '_' + y] = tile;
+				MAP_TILES[xy2pos(x, y)] = 0;
 			});
 		});
-		var r = () => _.random(0,NUM_OF_TILES - 1);
-		MAP_TILES[xy2pos(r(), r())] = 'S';
-		MAP_TILES[xy2pos(r(), r())] = 'G';
-		//*/
+
+		_.times(NUM_OF_TILES * 1.5, () => {
+			var lineLength = _.random(3, NUM_OF_TILES / 3);
+			var sx = _.random(0, NUM_OF_TILES - 1);
+			var sy = _.random(0, NUM_OF_TILES - 1);
+			if (Math.random() < 0.5) {
+				_.times(lineLength, (i) => MAP_TILES[xy2pos(sx + i, sy)] = Infinity);
+			} else {
+				_.times(lineLength, (i) => MAP_TILES[xy2pos(sx, sy + i)] = Infinity);
+			}
+		});
+
+		MAP_TILES[xy2pos(0, 0)] = 'S';
+		MAP_TILES[xy2pos(NUM_OF_TILES - 1, NUM_OF_TILES - 1)] = 'G';
 	}
 
 	function renderMap(status) {
@@ -51,32 +41,29 @@
 
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-		// Render walls
-		ctx.fillStyle = '#888';
-		ctx.strokeStyle = '#000';
-		ctx.lineWidth = 0.5;
+		// Render tiles
 		_.each(MAP_TILES, (tile, pos) => {
-			if (tile !== '#') return;
+			if (tile === Infinity) ctx.fillStyle = '#666';
+			else if (_.isFinite(tile)) ctx.fillStyle = 'hsl(0, 0%, ' + (70 + 30 * (1 - tile)) + '%)';
+			else return
 			var xy = pos2xy(pos);
 			ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
-			ctx.strokeRect(xy[0] * size, xy[1] * size, size, size);
 		});
 
-		// Render open & closed tiles
-		ctx.fillStyle = 'rgba(255,255,0,0.5)';	// open
-		_.keys(status.open).forEach((pos) => {
-			var xy = pos2xy(pos);
-			ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
-		});
-		ctx.fillStyle = 'rgba(0,0,0,0.3)';	// closed
-		_.keys(status.closed).forEach((pos) => {
-			var xy = pos2xy(pos);
-			ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
-		});
+		// Render cost map
+		var maxCost = _.max(_.values(status.cost));
+		if (0 < maxCost) {
+			_.each(status.cost, (cost, pos) => {
+				var hue = Math.min((1 - cost / maxCost) * 240, 240);
+				ctx.fillStyle = 'hsl(' + hue + ', 100%, 80%)';
+				var xy = pos2xy(pos);
+				ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
+			});
+		}
 
 		// Render found path if exists
-		ctx.strokeStyle = '#0f0';
-		ctx.lineWidth = 8;
+		ctx.strokeStyle = '#f00';
+		ctx.lineWidth = 4;
 		ctx.beginPath();
 		_.each(status.path, (pos, index) => {
 			var xy = pos2xy(pos);
@@ -99,8 +86,8 @@
 		});
 
 		// Render direction
+		ctx.fillStyle = '#333';
 		ctx.font = (size * 0.8) + "px 'ＭＳ 明朝";
-		ctx.fillStyle = '#f00';
 		_.each(status.direction, (direction, pos) => {
 			if (!direction) return;
 			var xy = pos2xy(pos);
@@ -126,13 +113,20 @@
 		});
 	}
 
-	// Returns cost between points
-	function cost(pos1, pos2) {
+	// Returns distance between points
+	function distance(pos1, pos2) {
 		var xy1 = pos2xy(pos1);
 		var xy2 = pos2xy(pos2);
 		var dx = xy2[0] - xy1[0];
 		var dy = xy2[1] - xy1[1];
 		return Math.sqrt(dx * dx + dy * dy);
+	}
+
+	// Returns cost of tile
+	function tileCost(pos) {
+		var tile = MAP_TILES[pos];
+		if ('S' === tile || 'G' === tile) return 0;
+		return MAP_TILES[pos] * 5;
 	}
 
 	// Initialize A*
@@ -145,7 +139,6 @@
 		status.cost = {[status.start]: 0};
 		status.direction = {[status.start]: null};
 		status.open = {[status.start]: true};
-		status.closed = {};
 		return status;
 	}
 
@@ -153,38 +146,31 @@
 	function step(status) {
 		// Select the minimum cost tile by expected-cost.
 		var minCostPos = _.minBy(_.keys(status.open), (pos) => {
-			return status.cost[pos] + cost(pos, status.goal);
+			return status.cost[pos] + distance(pos, status.goal);
 		});
 
-		// Check around tiles
+		// Open around tiles
 		var xy = pos2xy(minCostPos);
 		[
-			[1, 0],
-			[-1, 0],
-			[0, 1],
-			[0, -1],
-
-			[1, 1],
-			[1, -1],
-			[-1, 1],
-			[-1, -1],
+			[1, 0], [-1, 0], [0, 1], [0, -1],
+			[1, 1], [1, -1], [-1, 1], [-1, -1],
 		].forEach((offset) => {
 			var nextPos = xy2pos(xy[0] + offset[0], xy[1] + offset[1]);
-			var dir = xy2pos(offset[0], offset[1]);
-			if (!MAP_TILES[nextPos]) return;
-			if (MAP_TILES[nextPos] === '#') return;
-			if (status.closed[nextPos] && !status.open[nextPos]) return;
-			status.open[nextPos] = true;
-
-			var actualCost = cost(xy2pos(0, 0), dir);
-			var newCost = status.cost[minCostPos] + actualCost;
+			if (nextPos === status.start) return;
+			if (_.isUndefined(MAP_TILES[nextPos])) return;	// no tile
+			var newCost = status.cost[minCostPos] +
+										distance(minCostPos, nextPos) +
+										tileCost(nextPos);
+			if (!_.isFinite(newCost)) return;	// disabled tile
 			if (!status.cost[nextPos] || newCost < status.cost[nextPos]) {
+				status.open[nextPos] = true;
 				status.cost[nextPos] = newCost;
-				status.direction[nextPos] = dir;
+				status.direction[nextPos] = xy2pos(offset[0], offset[1]);
 			}
 		});
+
+		// Close the minimum cost tile
 		delete status.open[minCostPos];
-		status.closed[minCostPos] = true;
 
 		// Check if goal
 		if (status.direction[status.goal]) {
