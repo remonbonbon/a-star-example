@@ -19,8 +19,8 @@
 			});
 		});
 
-		_.times(NUM_OF_TILES * 1.5, () => {
-			var lineLength = _.random(3, NUM_OF_TILES / 3);
+		_.times(NUM_OF_TILES * 0.3, () => {
+			var lineLength = _.random(3, NUM_OF_TILES / 4);
 			var sx = _.random(0, NUM_OF_TILES - 1);
 			var sy = _.random(0, NUM_OF_TILES - 1);
 			if (Math.random() < 0.5) {
@@ -30,8 +30,23 @@
 			}
 		});
 
-		MAP_TILES[xy2pos(0, 0)] = 'S';
-		MAP_TILES[xy2pos(NUM_OF_TILES - 1, NUM_OF_TILES - 1)] = 'G';
+		_.times(NUM_OF_TILES * 0.5, () => {
+			var r = Math.round(_.random(3, NUM_OF_TILES / 5));
+			var cx = _.random(0, NUM_OF_TILES - 1);
+			var cy = _.random(0, NUM_OF_TILES - 1);
+			for (var y = -r; y <= r; y++) {
+				for (var x = -r; x <= r; x++) {
+					var r2 = Math.sqrt(x * x + y * y);
+					if (r2 <= r) {
+						MAP_TILES[xy2pos(cx + x, cy + y)] += (r - r2) / r;
+					}
+				}
+			}
+		});
+
+		var rnd = () => _.random(0, NUM_OF_TILES - 1);
+		MAP_TILES[xy2pos(rnd(), rnd())] = 'S';
+		MAP_TILES[xy2pos(rnd(), rnd())] = 'G';
 	}
 
 	function renderMap(status) {
@@ -43,9 +58,10 @@
 
 		// Render tiles
 		_.each(MAP_TILES, (tile, pos) => {
-			if (tile === Infinity) ctx.fillStyle = '#666';
+			if (tile === 0) return;
+			else if (tile === Infinity) ctx.fillStyle = '#666';
 			else if (_.isFinite(tile)) ctx.fillStyle = 'hsl(0, 0%, ' + (70 + 30 * (1 - tile)) + '%)';
-			else return
+			else return;
 			var xy = pos2xy(pos);
 			ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
 		});
@@ -55,7 +71,7 @@
 		if (0 < maxCost) {
 			_.each(status.cost, (cost, pos) => {
 				var hue = Math.min((1 - cost / maxCost) * 240, 240);
-				ctx.fillStyle = 'hsl(' + hue + ', 100%, 80%)';
+				ctx.fillStyle = 'hsl(' + hue + ', 100%, 75%)';
 				var xy = pos2xy(pos);
 				ctx.fillRect(xy[0] * size, xy[1] * size, size, size);
 			});
@@ -86,8 +102,9 @@
 		});
 
 		// Render direction
-		ctx.fillStyle = '#333';
 		ctx.font = (size * 0.8) + "px 'ＭＳ 明朝";
+		ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+		ctx.lineWidth = 2;
 		_.each(status.direction, (direction, pos) => {
 			if (!direction) return;
 			var xy = pos2xy(pos);
@@ -108,7 +125,7 @@
 				if (direction === '-1_1') text = '↑';
 				if (direction === '1_-1') text = '↓';
 			}
-			ctx.fillText(text, 0, 0, size);
+			ctx.strokeText(text, 0, 0, size);
 			ctx.restore();
 		});
 	}
@@ -126,7 +143,7 @@
 	function tileCost(pos) {
 		var tile = MAP_TILES[pos];
 		if ('S' === tile || 'G' === tile) return 0;
-		return MAP_TILES[pos] * 5;
+		return MAP_TILES[pos] * 3;
 	}
 
 	// Initialize A*
@@ -201,20 +218,33 @@
 		$message.textContent = '';
 	});
 	document.getElementById('step').addEventListener('click', function() {
+		console.time('A*');
 		var st = init();
-		renderMap(st);
-		clearInterval(intervalId);
-		intervalId = setInterval(function() {
-			renderMap(step(st));
+		while(true) {
+			step(st);
 			if (st.path) {
-				clearInterval(intervalId);
 				$message.textContent = 'Goal!';
+				break;
 			}
 			if (!st.path && _.size(st.open) === 0) {
-				clearInterval(intervalId);
 				$message.textContent = 'No path!';
+				break;
 			}
-		}, 10);
+		}
+		console.timeEnd('A*');
+		renderMap(st);
+		// clearInterval(intervalId);
+		// intervalId = setInterval(function() {
+			// renderMap(step(st));
+			// if (st.path) {
+				// clearInterval(intervalId);
+				// $message.textContent = 'Goal!';
+			// }
+			// if (!st.path && _.size(st.open) === 0) {
+				// clearInterval(intervalId);
+				// $message.textContent = 'No path!';
+			// }
+		// }, 10);
 	});
 
 	createMap();
